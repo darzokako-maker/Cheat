@@ -5,7 +5,6 @@
 #include <string>
 #include <sstream>
 
-// OpenSSL gereksinimini kaldırdık
 #include "httplib.h"
 
 std::vector<uintptr_t> scanResults;
@@ -18,71 +17,34 @@ std::string ToHex(uintptr_t val) {
     return ss.str();
 }
 
-// Arayüzü daha sade ve hata vermeyecek tırnak yapılarıyla kurduk
-const char* html_ui = R"(
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Luna Pro</title>
-    <style>
-        body { background: #0b0f19; color: #f1f5f9; font-family: monospace; padding: 20px; }
-        .panel { background: #161d2f; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        input, select, button { background: #0b0f19; border: 1px solid #334155; color: white; padding: 8px; margin: 5px; }
-        button { background: #38bdf8; color: black; cursor: pointer; font-weight: bold; border: none; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #334155; padding: 8px; text-align: left; }
-    </style>
-</head>
-<body>
-    <div class="panel">
-        <h2>LUNA STEALTH PRO</h2>
-        <select id="procList"></select>
-        <button onclick="attach()">BAGLAN</button>
-        <hr>
-        <input type="number" id="scanVal" placeholder="Deger">
-        <button onclick="doScan('first')">ILK TARAMA</button>
-        <button onclick="doScan('next')">FILTRELE</button>
-    </div>
-    <div class="panel">
-        <table id="resTable">
-            <thead><tr><th>ADRES</th><th>DEGER</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </div>
-    <script>
-        function attach() {
-            let pid = document.getElementById('procList').value;
-            fetch('/api/attach?pid=' + pid).then(r => r.text()).then(t => alert(t));
-        }
-        function doScan(mode) {
-            let val = document.getElementById('scanVal').value;
-            fetch('/api/scan?mode=' + mode + '&val=' + val).then(r => r.json()).then(data => {
-                let tbody = document.querySelector('#resTable tbody');
-                tbody.innerHTML = '';
-                data.forEach(row => {
-                    tbody.innerHTML += '<tr><td>' + row.address + '</td><td>' + row.value + '</td></tr>';
-                });
-            });
-        }
-        fetch('/api/procs').then(r => r.json()).then(data => {
-            let s = document.getElementById('procList');
-            data.forEach(p => { s.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>'; });
-        });
-    </script>
-</body>
-</html>
-)";
+// Web arayüzünü parçalara ayırarak en güvenli şekilde tanımlıyoruz
+std::string get_ui() {
+    std::string html = "<html><head><meta charset=\"UTF-8\"><title>Luna Pro</title>";
+    html += "<style>body{background:#0b0f19;color:#f1f5f9;font-family:monospace;padding:20px;}";
+    html += ".panel{background:#161d2f;padding:20px;border-radius:8px;margin-bottom:20px;}";
+    html += "input,select,button{background:#0b0f19;border:1px solid #334155;color:white;padding:8px;margin:5px;}";
+    html += "button{background:#38bdf8;color:black;cursor:pointer;font-weight:bold;border:none;}";
+    html += "table{width:100%;border-collapse:collapse;margin-top:10px;} th,td{border:1px solid #334155;padding:8px;}</style></head>";
+    html += "<body><div class=\"panel\"><h2>LUNA STEALTH PRO</h2><select id=\"procList\"></select>";
+    html += "<button onclick=\"attach()\">BAGLAN</button><hr>";
+    html += "<input type=\"number\" id=\"scanVal\" placeholder=\"Deger\">";
+    html += "<button onclick=\"doScan('first')\">ILK TARAMA</button></div>";
+    html += "<div class=\"panel\"><table><thead><tr><th>ADRES</th><th>DEGER</th></tr></thead><tbody id=\"resTable\"></tbody></table></div>";
+    html += "<script>function attach(){var p=document.getElementById('procList').value;fetch('/api/attach?pid='+p).then(r=>r.text()).then(t=>alert(t));}";
+    html += "function doScan(m){var v=document.getElementById('scanVal').value;var p=document.getElementById('procList').value;";
+    html += "fetch('/api/scan?mode='+m+'&val='+v).then(r=>r.json()).then(data=>{var b=document.getElementById('resTable');b.innerHTML='';";
+    html += "data.forEach(row=>{b.innerHTML+='<tr><td>'+row.address+'</td><td>'+row.value+'</td></tr>';});});}";
+    html += "fetch('/api/procs').then(r=>r.json()).then(data=>{var s=document.getElementById('procList');";
+    html += "data.forEach(p=>{var o=document.createElement('option');o.value=p.id;o.text=p.name;s.appendChild(o);});});</script></body></html>";
+    return html;
+}
 
 int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
-    // Konsolu tamamen gizle
-    HWND hConsole = GetConsoleWindow();
-    if (hConsole) ShowWindow(hConsole, SW_HIDE);
-
+    ShowWindow(GetConsoleWindow(), SW_HIDE);
     httplib::Server svr;
 
     svr.Get("/", [](const auto&, auto& res) {
-        res.set_content(html_ui, "text/html");
+        res.set_content(get_ui(), "text/html");
     });
 
     svr.Get("/api/procs", [](const auto&, auto& res) {
@@ -103,10 +65,10 @@ int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
 
     svr.Get("/api/attach", [](const auto& req, auto& res) {
         if(req.has_param("pid")) {
-            currentPID = std::stoi(req.get_param_value("pid"));
+            currentPID = std::get<1>(*req.params.find("pid"));
             if(currentProcessHandle) CloseHandle(currentProcessHandle);
             currentProcessHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, currentPID);
-            res.set_content(currentProcessHandle ? "Baglandi!" : "Hata!", "text/plain");
+            res.set_content(currentProcessHandle ? "Baglandi!" : "Erişim Reddedildi!", "text/plain");
         }
     });
 
@@ -129,18 +91,13 @@ int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
         }
         std::string j = "[";
         for(size_t i=0; i < (scanResults.size() > 50 ? 50 : scanResults.size()); i++) {
-            int v; ReadProcessMemory(currentProcessHandle, (LPCVOID)scanResults[i], &v, 4, NULL);
+            int v = 0; ReadProcessMemory(currentProcessHandle, (LPCVOID)scanResults[i], &v, 4, NULL);
             if(i > 0) j += ",";
             j += "{\"address\":\"" + ToHex(scanResults[i]) + "\",\"value\":" + std::to_string(v) + "}";
         }
         res.set_content(j + "]", "application/json");
     });
 
-    // Panic Key: CTRL+F12
-    RegisterHotKey(NULL, 1, MOD_CONTROL, VK_F12);
-
-    // Sunucuyu 1337 portunda baslat
     svr.listen("127.0.0.1", 1337);
-
     return 0;
 }
