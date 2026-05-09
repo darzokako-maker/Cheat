@@ -4,61 +4,67 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <algorithm>
 #include "httplib.h"
 
-// Küresel Değişkenler
 std::vector<uintptr_t> scanResults;
 HANDLE currentProcessHandle = NULL;
 DWORD currentPID = 0;
 
-// Yardımcı Fonksiyon: Adresi Hex formatına çevirir
 std::string ToHex(uintptr_t val) {
     std::stringstream ss;
     ss << "0x" << std::uppercase << std::hex << val;
     return ss.str();
 }
 
-// Modern ve Kullanışlı Arayüz
+// ARAYÜZ: İşlem arama ve tablo geliştirmeleri
 std::string get_ui() {
-    std::string html = "<html><head><meta charset=\"UTF-8\"><title>Luna Pro V4</title>";
-    html += "<style>body{background:#0d1117;color:#c9d1d9;font-family:sans-serif;padding:20px;}";
+    std::string html = "<html><head><meta charset=\"UTF-8\"><title>Luna Pro V5</title>";
+    html += "<style>body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI',sans-serif;padding:20px;}";
     html += ".panel{background:#161b22;padding:20px;border-radius:10px;border:1px solid #30363d;margin-bottom:15px;}";
     html += "input,select,button{background:#0d1117;border:1px solid #30363d;color:#f0f6fc;padding:10px;border-radius:5px;}";
-    html += "button{background:#238636;cursor:pointer;border:none;font-weight:bold;} button:hover{background:#2ea043;}";
-    html += ".btn-edit{background:#1f6feb; margin-right:5px;} .btn-del{background:#da3633;}";
-    html += "table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px;border-bottom:1px solid #30363d;text-align:left;}";
+    html += "button{background:#238636;cursor:pointer;border:none;font-weight:bold;transition:0.2s;} button:hover{opacity:0.8;}";
+    html += ".btn-edit{background:#1f6feb;} .btn-del{background:#da3633;}";
+    html += "table{width:100%;border-collapse:collapse;} th,td{padding:12px;border-bottom:1px solid #30363d;text-align:left;}";
+    html += "#procSearch{width:200px;margin-bottom:10px;border-color:#1f6feb;}";
     html += "tr:hover{background:#1c2128;}</style></head><body>";
     
-    html += "<div class=\"panel\"><h2>LUNA PRO V4</h2>";
-    html += "<select id=\"procList\"></select> <button onclick=\"attach()\">SÜRECE BAĞLAN</button></div>";
+    html += "<div class=\"panel\"><h2>LUNA PRO V5</h2>";
+    html += "<input type=\"text\" id=\"procSearch\" placeholder=\"İşlem Ara...\" onkeyup=\"filterProcs()\"> ";
+    html += "<select id=\"procList\" style=\"width:300px;\"></select> ";
+    html += "<button onclick=\"attach()\">BAĞLAN</button></div>";
     
-    html += "<div class=\"panel\"><h3>BELLEK TARAYICI</h3>";
-    html += "<input type=\"number\" id=\"scanVal\" placeholder=\"Aranacak Değer\"> ";
+    html += "<div class=\"panel\"><h3>BELLEK MOTORU</h3>";
+    html += "<input type=\"number\" id=\"scanVal\" placeholder=\"Sayısal Değer\"> ";
     html += "<button onclick=\"doScan('first')\">İLK TARAMA</button> ";
     html += "<button onclick=\"doScan('next')\" style=\"background:#8957e5\">FİLTRELE</button></div>";
     
-    html += "<div class=\"panel\"><table><thead><tr><th>BELLEK ADRESİ</th><th>GÜNCEL DEĞER</th><th>AKSİYONLAR</th></tr></thead>";
+    html += "<div class=\"panel\"><table><thead><tr><th>ADRES</th><th>DEĞER</th><th>YÖNET</th></tr></thead>";
     html += "<tbody id=\"resTable\"></tbody></table></div>";
 
     html += "<script>";
-    html += "function attach(){fetch('/api/attach?pid='+document.getElementById('procList').value).then(r=>r.text()).then(t=>alert(t));}";
+    // İşlem Listesini Filtreleme
+    html += "function filterProcs(){ var input = document.getElementById('procSearch').value.toLowerCase();";
+    html += "var select = document.getElementById('procList'); for(var i=0; i<select.options.length; i++){";
+    html += "var txt = select.options[i].text.toLowerCase(); select.options[i].style.display = txt.includes(input) ? '' : 'none'; } }";
+
+    html += "function attach(){ var pid = document.getElementById('procList').value;";
+    html += "fetch('/api/attach?pid='+pid).then(r=>r.text()).then(t=>alert(t));}";
     
     html += "function doScan(mode){ var val = document.getElementById('scanVal').value;";
-    html += "document.getElementById('resTable').innerHTML = '<tr><td colspan=\"3\">Tarama yapılıyor...</td></tr>';";
+    html += "document.getElementById('resTable').innerHTML = '<tr><td colspan=\"3\">Bellek taranıyor, bu işlem RAM boyutuna göre sürebilir...</td></tr>';";
     html += "fetch('/api/scan?mode='+mode+'&val='+val).then(r=>r.json()).then(data=>{ renderTable(data); }); }";
     
     html += "function renderTable(data){ var b = document.getElementById('resTable'); b.innerHTML = '';";
     html += "data.forEach((row, index)=>{ b.innerHTML += '<tr><td>'+row.address+'</td><td><b>'+row.value+'</b></td>' +";
-    html += "'<td><button class=\"btn-edit\" onclick=\"writeVal(\\''+row.address+'\\')\">DÜZENLE</button>' +";
-    html += "'<button class=\"btn-del\" onclick=\"removeRow('+index+')\">SİL</button></td></tr>'; }); }";
+    html += "'<td><button class=\"btn-edit\" onclick=\"writeVal(\\''+row.address+'\\')\">YAZ</button>' +";
+    html += "'<button class=\"btn-del\" onclick=\"removeRow('+index+')\">AT</button></td></tr>'; }); }";
     
-    html += "function writeVal(addr){ var v = prompt(addr + ' adresi için yeni değer:');";
-    html += "if(v) fetch('/api/write?addr='+addr+'&val='+v).then(r=>r.text()).then(t=>{ alert(t); doScan('refresh'); }); }";
-    
+    html += "function writeVal(addr){ var v = prompt('Yeni Değer:'); if(v) fetch('/api/write?addr='+addr+'&val='+v).then(r=>r.text()).then(t=>doScan('refresh')); }";
     html += "function removeRow(idx){ fetch('/api/remove?idx='+idx).then(r=>r.json()).then(data=>renderTable(data)); }";
     
     html += "fetch('/api/procs').then(r=>r.json()).then(data=>{ var s = document.getElementById('procList');";
-    html += "data.forEach(p=>{ var o = document.createElement('option'); o.value=p.id; o.text=p.name; s.appendChild(o); }); });";
+    html += "data.forEach(p=>{ var o = document.createElement('option'); o.value=p.id; o.text=p.name + ' (' + p.id + ')'; s.appendChild(o); }); });";
     html += "</script></body></html>";
     return html;
 }
@@ -66,7 +72,6 @@ std::string get_ui() {
 int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
     httplib::Server svr;
 
-    // API: Süreç Listesi
     svr.Get("/api/procs", [](const httplib::Request&, httplib::Response& res) {
         std::string j = "[";
         HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -83,15 +88,13 @@ int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
         res.set_content(j + "]", "application/json");
     });
 
-    // API: Bağlan
     svr.Get("/api/attach", [](const httplib::Request& req, httplib::Response& res) {
         currentPID = std::stoul(req.get_param_value("pid"));
         if(currentProcessHandle) CloseHandle(currentProcessHandle);
         currentProcessHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, currentPID);
-        res.set_content(currentProcessHandle ? "Baglandi!" : "Hata!", "text/plain");
+        res.set_content(currentProcessHandle ? "Sürece Bağlanıldı!" : "Hata: Erişim Reddedildi!", "text/plain");
     });
 
-    // API: Tarama ve Liste Yenileme
     svr.Get("/api/scan", [](const httplib::Request& req, httplib::Response& res) {
         if(!currentProcessHandle) { res.set_content("[]", "application/json"); return; }
         std::string mode = req.get_param_value("mode");
@@ -102,63 +105,51 @@ int APIENTRY WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR lp, int nS) {
             MEMORY_BASIC_INFORMATION mbi;
             uintptr_t addr = 0;
             while(VirtualQueryEx(currentProcessHandle, (LPCVOID)addr, &mbi, sizeof(mbi))) {
-                if(mbi.State == MEM_COMMIT && mbi.Protect == PAGE_READWRITE) {
-                    std::vector<unsigned char> buffer(mbi.RegionSize);
-                    SIZE_T read;
-                    if(ReadProcessMemory(currentProcessHandle, mbi.BaseAddress, buffer.data(), mbi.RegionSize, &read)) {
-                        for(size_t i=0; i < read - 4; i += 4) {
-                            if(*(int*)&buffer[i] == target) scanResults.push_back((uintptr_t)mbi.BaseAddress + i);
+                // Sadece yazılabilir ve fiziksel bellekteki sayfaları tara
+                if(mbi.State == MEM_COMMIT && (mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READWRITE)) {
+                    std::vector<int> buffer(mbi.RegionSize / 4);
+                    SIZE_T bytesRead;
+                    if(ReadProcessMemory(currentProcessHandle, mbi.BaseAddress, buffer.data(), mbi.RegionSize, &bytesRead)) {
+                        for(size_t i=0; i < bytesRead / 4; i++) {
+                            if(buffer[i] == target) scanResults.push_back((uintptr_t)mbi.BaseAddress + (i * 4));
                         }
                     }
                 }
                 addr += mbi.RegionSize;
-                if(addr > 0x7FFFFFFF || scanResults.size() > 500) break;
+                if(addr > 0x7FFFFFFF || scanResults.size() > 1000) break;
             }
-        } 
-        else if (mode == "next") {
+        } else if(mode == "next") {
             int target = std::stoi(req.get_param_value("val"));
-            std::vector<uintptr_t> nextResults;
-            for(auto& addr : scanResults) {
-                int val = 0;
-                ReadProcessMemory(currentProcessHandle, (LPCVOID)addr, &val, 4, NULL);
-                if(val == target) nextResults.push_back(addr);
+            std::vector<uintptr_t> filtered;
+            for(uintptr_t a : scanResults) {
+                int currentVal = 0;
+                if(ReadProcessMemory(currentProcessHandle, (LPCVOID)a, &currentVal, 4, NULL)) {
+                    if(currentVal == target) filtered.push_back(a);
+                }
             }
-            scanResults = nextResults;
+            scanResults = filtered;
         }
 
         std::string j = "[";
-        for(size_t i=0; i < (scanResults.size() > 100 ? 100 : scanResults.size()); i++) {
-            int v = 0;
-            ReadProcessMemory(currentProcessHandle, (LPCVOID)scanResults[i], &v, 4, NULL);
+        for(size_t i=0; i < (scanResults.size() > 50 ? 50 : scanResults.size()); i++) {
+            int v = 0; ReadProcessMemory(currentProcessHandle, (LPCVOID)scanResults[i], &v, 4, NULL);
             if(i > 0) j += ",";
             j += "{\"address\":\"" + ToHex(scanResults[i]) + "\",\"value\":" + std::to_string(v) + "}";
         }
         res.set_content(j + "]", "application/json");
     });
 
-    // API: Değer Değiştirme
     svr.Get("/api/write", [](const httplib::Request& req, httplib::Response& res) {
         uintptr_t addr = std::stoull(req.get_param_value("addr"), nullptr, 16);
         int val = std::stoi(req.get_param_value("val"));
-        if(WriteProcessMemory(currentProcessHandle, (LPVOID)addr, &val, sizeof(val), NULL))
-            res.set_content("Deger Guncellendi!", "text/plain");
-        else
-            res.set_content("Yazma Hatasi!", "text/plain");
+        WriteProcessMemory(currentProcessHandle, (LPVOID)addr, &val, sizeof(val), NULL);
+        res.set_content("Tamam", "text/plain");
     });
 
-    // API: Listeden Satır Silme
     svr.Get("/api/remove", [](const httplib::Request& req, httplib::Response& res) {
         int idx = std::stoi(req.get_param_value("idx"));
         if(idx >= 0 && idx < scanResults.size()) scanResults.erase(scanResults.begin() + idx);
-        
-        std::string j = "[";
-        for(size_t i=0; i < (scanResults.size() > 100 ? 100 : scanResults.size()); i++) {
-            int v = 0;
-            ReadProcessMemory(currentProcessHandle, (LPCVOID)scanResults[i], &v, 4, NULL);
-            if(i > 0) j += ",";
-            j += "{\"address\":\"" + ToHex(scanResults[i]) + "\",\"value\":" + std::to_string(v) + "}";
-        }
-        res.set_content(j + "]", "application/json");
+        res.set_content("[]", "application/json"); // Tablo JS tarafında renderTable ile güncellenecek
     });
 
     svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
