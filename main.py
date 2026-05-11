@@ -1,84 +1,99 @@
-import pymem
-import pymem.process
-from flask import Flask, render_template_string, jsonify
-import threading
-import time
-import random
+import cv2
+import numpy as np
+import pyautogui
+from flask import Flask, Response, request, render_template_string
+import mss
+
+# Mouse hatalarını engellemek için güvenliği kapat
+pyautogui.FAILSAFE = False
 
 app = Flask(__name__)
 
-# 8 Mayıs 2026 - Build 14160 Dosyandan Alınan Offsetler
-class Offsets:
-    dwLocalPlayerPawn = 0x2057720
-    dwEntityList = 0x24D1DF0
-    m_iHealth = 0x334
-    m_iTeamNum = 0x3CB
-    m_vOldOrigin = 0x1324
+# Ekran yakalama ayarı (Birinci monitör)
+sct = mss.mss()
+monitor = sct.monitors[1]
 
-shared_data = {"players": []}
-
-def memory_worker():
+def get_screen_stream():
     while True:
-        try:
-            # Sadece OKUMA yetkisiyle baglan (PROCESS_VM_READ)
-            pm = pymem.Pymem("cs2.exe")
-            client = pymem.process.module_from_name(pm.process_handle, "client.dll").lpBaseOfDll
-            
-            while True:
-                temp_players = []
-                local_pawn = pm.read_longlong(client + Offsets.dwLocalPlayerPawn)
-                elist = pm.read_longlong(client + Offsets.dwEntityList)
-                
-                if not local_pawn or not elist: continue
-
-                for i in range(1, 64):
-                    try:
-                        entry = pm.read_longlong(elist + (8 * (i & 0x7FFF) >> 9) + 16)
-                        pawn = pm.read_longlong(entry + 120 * (i & 0x1FF))
-                        if not pawn or pawn == local_pawn: continue
-                        
-                        # SADECE OKUMA YAPILIYOR (GIZLILIK ICIN EN IYISI)
-                        hp = pm.read_int(pawn + Offsets.m_iHealth)
-                        if 0 < hp <= 100:
-                            x = pm.read_float(pawn + Offsets.m_vOldOrigin)
-                            y = pm.read_float(pawn + Offsets.m_vOldOrigin + 4)
-                            team = pm.read_int(pawn + Offsets.m_iTeamNum)
-                            temp_players.append({"x": x, "y": y, "team": team})
-                    except: continue
-                
-                shared_data["players"] = temp_players
-                # Okuma hızını hafif dalgalı yaparak fark edilmeyi zorlastır
-                time.sleep(random.uniform(0.05, 0.08))
-                
-        except:
-            time.sleep(3)
+        # Ekran görüntüsünü al
+        sct_img = sct.grab(monitor)
+        img = np.array(sct_img)
+        
+        # BGRA -> BGR çevirimi
+        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        
+        # Hız için görüntüyü %50 küçült (Daha az lag)
+        frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        
+        # JPEG olarak sıkıştır (Kalite 70)
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        frame_bytes = buffer.tobytes()
+        
+        # Web yayını formatında gönder
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 @app.route('/')
 def index():
+    # Web arayüzü
     return render_template_string('''
-        <body style="background:#000; color:#0f0; font-family:monospace; text-align:center;">
-            <h3>GIZLI WEB MONITOR - V14160</h3>
-            <div id="radar" style="width:500px; height:500px; border:2px solid #222; margin:auto; position:relative; background:#111; border-radius:50%; overflow:hidden;"></div>
-            <script>
-                function update() {
-                    fetch('/data').then(r=>r.json()).then(d=>{
-                        const r=document.getElementById('radar'); r.innerHTML='';
-                        d.players.forEach(p=>{
-                            const dot=document.createElement('div');
-                            dot.style.cssText=`position:absolute; width:10px; height:10px; border-radius:50%; background:${p.team==2?'red':'blue'}; left:${p.x/15+250}px; top:${p.y/-15+250}px; border:1px solid white;`;
-                            r.appendChild(dot);
-                        });
-                    });
-                }
-                setInterval(update, 100);
-            </script>
-        </body>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Luna Remote Desktop</title>
+        <style>
+            body { background: #000; color: #0f0; font-family: monospace; margin: 0; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+            #status { padding: 10px; background: #111; width: 100%; text-align: center; border-bottom: 1px solid #333; }
+            #container { position: relative; width: 95vw; height: 80vh; margin-top: 10px; border: 1px solid #444; background: #050505; }
+            #screen { width: 100%; height: 100%; object-fit: contain; cursor: crosshair; }
+        </style>
+    </head>
+    <body>
+        <div id="status">LUNA REMOTE - CANLI YAYIN</div>
+        <div id="container">
+            <img id="screen" src="/video_feed">
+        </div>
+        <script>
+            const screen = document.getElementById('screen');
+            function sendCommand(action, e) {
+                const rect = screen.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width;
+                const y = (e.clientY - rect.top) / rect.height;
+                fetch(`/remote_input?type=${action}&x=${x}&y=${y}`);
+            }
+            screen.addEventListener('mousedown', (e) => {
+                if (e.button === 0) sendCommand('left_click', e);
+            });
+            screen.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                sendCommand('right_click', e);
+            });
+        </script>
+    </body>
+    </html>
     ''')
 
-@app.route('/data')
-def data(): return jsonify(shared_data)
+@app.route('/video_feed')
+def video_feed():
+    return Response(get_screen_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-if __name__ == "__main__":
-    threading.Thread(target=memory_worker, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000)
-  
+@app.route('/remote_input')
+def remote_input():
+    input_type = request.args.get('type')
+    rel_x = float(request.args.get('x'))
+    rel_y = float(request.args.get('y'))
+    
+    # Gerçek ekran boyutlarını al
+    screen_w, screen_h = pyautogui.size()
+    target_x = int(rel_x * screen_w)
+    target_y = int(rel_y * screen_h)
+    
+    if input_type == 'left_click':
+        pyautogui.click(target_x, target_y)
+    elif input_type == 'right_click':
+        pyautogui.rightClick(target_x, target_y)
+    return "OK"
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, threaded=True)
+    
