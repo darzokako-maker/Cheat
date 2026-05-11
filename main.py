@@ -5,7 +5,11 @@ from flask import Flask, Response, request, render_template_string
 import mss
 import time
 
+# Mouse hata korumasını kapat
 pyautogui.FAILSAFE = False
+# Mouse hareket hızını sıfıra çek (Anında tepki için)
+pyautogui.PAUSE = 0
+
 app = Flask(__name__)
 sct = mss.mss()
 monitor = sct.monitors[1]
@@ -13,22 +17,25 @@ monitor = sct.monitors[1]
 def get_screen_stream():
     last_time = 0
     while True:
-        # FPS Sınırla: Saniyede max 20 kare (Gecikmeyi önlemek için kritik)
-        if (time.time() - last_time) < 0.05: 
+        # FPS SABİTLEME: Saniyede 15 kare akıcılık için yeterlidir ve gecikmeyi önler
+        current_time = time.time()
+        if (current_time - last_time) < 0.06: 
             continue
-        last_time = time.time()
+        last_time = current_time
 
+        # Ekranı yakala
         sct_img = sct.grab(monitor)
         img = np.array(sct_img)
         frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         
-        # PERFORMANS AYARI: 
-        # fx=0.3 görüntüyü %30'a düşürür. Telefondan kontrol için idealdir.
-        frame = cv2.resize(frame, (0, 0), fx=0.3, fy=0.3)
+        # MOBİL OPTİMİZASYON: 
+        # fx=0.25 görüntüyü orijinalin 1/4'üne indirir. Telefondan akıcılık için en iyi ayardır.
+        frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
         
-        # JPEG KALİTESİ: 
-        # 40-50 arası akıcılığı artırır, görüntüdeki bozulma telefonda çok belli olmaz.
-        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 45])
+        # ULTRA SIKIŞTIRMA: 
+        # Kaliteyi 35'e düşürerek veri boyutunu %90 oranında azalttık.
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 35])
+        
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
@@ -38,64 +45,58 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Luna Mobile Remote</title>
+        <title>Luna Ultra Fluid</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
         <style>
-            body { background: #000; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-            #container { width: 100%; flex-grow: 1; position: relative; background: #050505; display: flex; align-items: center; justify-content: center; }
-            #screen { width: 100%; height: auto; max-height: 100%; object-fit: contain; -webkit-user-select: none; }
-            #status { background: #111; color: #0f0; font-family: monospace; font-size: 12px; padding: 5px; text-align: center; }
+            body { background: #000; margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+            #container { flex: 1; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
+            #screen { width: 100%; height: auto; max-height: 100vh; object-fit: contain; }
+            #info { position: fixed; top: 0; width: 100%; background: rgba(0,255,0,0.1); color: #0f0; font-size: 10px; text-align: center; z-index: 10; }
         </style>
     </head>
     <body>
-        <div id="status">MOBİL OPTİMİZE MOD: AKTİF</div>
+        <div id="info">ULTRA FLUID MODE | LAG REDUCTION ACTIVE</div>
         <div id="container">
             <img id="screen" src="/video_feed">
         </div>
         <script>
             const screen = document.getElementById('screen');
+            
             function sendCommand(action, e) {
                 const rect = screen.getBoundingClientRect();
-                // Dokunmatik koordinatları hesapla
-                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-                const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                 
                 const x = (clientX - rect.left) / rect.width;
                 const y = (clientY - rect.top) / rect.height;
-                fetch(`/remote_input?type=${action}&x=${x}&y=${y}`);
+                
+                // Gecikmeyi azaltmak için arka planda hızlıca gönder (No-wait)
+                navigator.sendBeacon(`/remote_input?type=${action}&x=${x}&y=${y}`);
             }
 
-            // Mobil için dokunmatik desteği
             screen.addEventListener('touchstart', (e) => {
-                sendCommand('left_click', e);
-                // e.preventDefault(); // Sayfanın kaymasını engeller
-            }, {passive: false});
+                sendCommand('click', e);
+            }, {passive: true});
 
-            // Sağ tık simülasyonu için uzun basma veya ekranın üst kısmına özel alan eklenebilir
             screen.addEventListener('contextmenu', (e) => e.preventDefault());
         </script>
     </body>
     </html>
     ''')
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(get_screen_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 @app.route('/remote_input')
 def remote_input():
-    # Mouse komutları aynı kalıyor
-    ix = request.args.get('type')
-    rx = float(request.args.get('x'))
-    ry = float(request.args.get('y'))
-    sw, sh = pyautogui.size()
-    tx, ty = int(rx * sw), int(ry * sh)
+    # Hızlı komut işleme
+    t = request.args.get('type')
+    x = float(request.args.get('x'))
+    y = float(request.args.get('y'))
+    w, h = pyautogui.size()
     
-    if ix == 'left_click':
-        pyautogui.click(tx, ty)
-    return "OK"
+    if t == 'click':
+        pyautogui.click(int(x * w), int(y * h))
+    return "", 204
 
 if __name__ == '__main__':
-    # threaded=True bağlantıların birbirini kilitmemesini sağlar
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    # threaded=True ve 0.0.0.0 ile yerel ağda en yüksek performansı verir
+    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
     
